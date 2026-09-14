@@ -1,0 +1,150 @@
+import type { Env } from "./config";
+import type { DriveFile, GoogleDoc, GoogleTab, InlineObject } from "./types";
+
+const encoder = new TextEncoder();
+let cachedToken: { token: string; expiresAt: number } | null = null;
+let cachedFiles: { folderId: string; files: DriveFile[]; expiresAt: number } | null = null;
+
+function base64Url(input: string | ArrayBuffer): string {
+  const bytes = typeof input === "string" ? encoder.encode(input) : new Uint8Array(input);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function pemBytes(pem: string): Uint8Array {
+  const normalized = pem.replace(/\\n/g, "\n");
+  const base64 = normalized
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\s/g, "");
+  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
+async function googleAccessToken(env: Env): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.token;
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claim = base64Url(JSON.stringify({
+    iss: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    scope: "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/documents.readonly",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  }));
+  const unsigned = `${header}.${claim}`;
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    pemBytes(env.GOOGLE_PRIVATE_KEY),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, encoder.encode(unsigned));
+  const assertion = `${unsigned}.${base64Url(signature)}`;
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+  if (!response.ok) throw new Error(`Google authentication failed (${response.status})`);
+  const result = await response.json<{ access_token?: string; expires_in?: number }>();
+  if (!result.access_token) throw new Error("Google returned no access token");
+  cachedToken = {
+    token: result.access_token,
+    expiresAt: Date.now() + (result.expires_in ?? 3600) * 1000,
+  };
+  return cachedToken.token;
+}
+
+async function googleJson<T>(env: Env, url: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${await googleAccessToken(env)}` },
+  });
+  if (!response.ok) throw new Error(`Google API request failed (${response.status})`);
+  return response.json<T>();
+}
+
+export async function listDocuments(env: Env): Promise<DriveFile[]> {
+  if (
+    cachedFiles &&
+    cachedFiles.folderId === env.GOOGLE_DRIVE_FOLDER_ID &&
+    cachedFiles.expiresAt > Date.now()
+  ) return cachedFiles.files;
+
+  const files: DriveFile[] = [];
+  let pageToken: string | undefined;
+  do {
+    const query = new URLSearchParams({
+      q: `'${env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.document'`,
+      fields: "nextPageToken,files(id,name,mimeType,modifiedTime,description)",
+      pageSize: "1000",
+      orderBy: "name",
+      includeItemsFromAllDrives: "true",
+      supportsAllDrives: "true",
+    });
+    if (pageToken) query.set("pageToken", pageToken);
+    const page = await googleJson<{ files?: DriveFile[]; nextPageToken?: string }>(
+      env,
+      `https://www.googleapis.com/drive/v3/files?${query}`,
+    );
+    files.push(...(page.files ?? []));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+
+  cachedFiles = { folderId: env.GOOGLE_DRIVE_FOLDER_ID, files, expiresAt: Date.now() + 300_000 };
+  return files;
+}
+
+export async function assertAllowedDocument(env: Env, documentId: string): Promise<DriveFile> {
+  const file = (await listDocuments(env)).find((item) => item.id === documentId);
+  if (!file) throw new Error("DOCUMENT_NOT_ALLOWED");
+  return file;
+}
+
+export async function getDocument(env: Env, documentId: string): Promise<GoogleDoc> {
+  await assertAllowedDocument(env, documentId);
+  return googleJson<GoogleDoc>(
+    env,
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`,
+  );
+}
+
+function allTabs(tabs: GoogleTab[] = []): GoogleTab[] {
+  return tabs.flatMap((tab) => [tab, ...allTabs(tab.childTabs)]);
+}
+
+export function findInlineObject(document: GoogleDoc, objectId: string): InlineObject | undefined {
+  if (document.inlineObjects?.[objectId]) return document.inlineObjects[objectId];
+  for (const tab of allTabs(document.tabs)) {
+    const object = tab.documentTab?.inlineObjects?.[objectId];
+    if (object) return object;
+  }
+  return undefined;
+}
+
+export async function fetchDocumentImage(
+  env: Env,
+  documentId: string,
+  objectId: string,
+): Promise<Response> {
+  const document = await getDocument(env, documentId);
+  const uri = findInlineObject(document, objectId)?.inlineObjectProperties?.embeddedObject
+    ?.imageProperties?.contentUri;
+  if (!uri) return new Response("Image not found", { status: 404 });
+
+  const upstream = await fetch(uri);
+  if (!upstream.ok || !upstream.body) return new Response("Image unavailable", { status: 502 });
+  return new Response(upstream.body, {
+    headers: {
+      "Content-Type": upstream.headers.get("Content-Type") ?? "image/png",
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
