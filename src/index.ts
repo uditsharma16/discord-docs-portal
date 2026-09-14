@@ -1,7 +1,6 @@
 import { PORTAL_CONFIG, type Env } from "./config";
 import { authorizeDiscordMember, discordLoginUrl, exchangeDiscordCode } from "./discord";
-import { fetchDocumentImage, getDocument, listDocuments } from "./google";
-import { renderGoogleDocument } from "./render";
+import { exportDocumentPdf, fetchDocumentImage, listDocuments } from "./google";
 import {
   clearCookie,
   cookie,
@@ -52,14 +51,17 @@ function redirect(location: string, headers?: Headers): Response {
 function secure(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "private, no-store");
+  const isPdf = headers.get("Content-Type")?.startsWith("application/pdf") ?? false;
   headers.set(
     "Content-Security-Policy",
-    "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    isPdf
+      ? "default-src 'none'; frame-ancestors 'self'; base-uri 'none'"
+      : "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   );
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Frame-Options", "DENY");
+  headers.set("X-Frame-Options", isPdf ? "SAMEORIGIN" : "DENY");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -127,16 +129,33 @@ async function handleDocument(request: Request, env: Env, documentId: string): P
   const user = await readSession(request, env.SESSION_SECRET);
   if (!user) return redirect("/");
   try {
-    const [document, files] = await Promise.all([getDocument(env, documentId), listDocuments(env)]);
-    const file = files.find((item) => item.id === documentId);
+    const file = (await listDocuments(env)).find((item) => item.id === documentId);
     if (!file) return errorPage("Document not found", "This record is not part of the permitted archive.", 404);
-    return html(documentPage(user, file, renderGoogleDocument(document, documentId)));
+    return html(documentPage(user, file));
   } catch (error) {
     if (error instanceof Error && error.message === "DOCUMENT_NOT_ALLOWED") {
       return errorPage("Document not found", "This record is not part of the permitted archive.", 404);
     }
     const message = error instanceof Error ? error.message : "The record could not be retrieved from Google.";
     return errorPage("Document unavailable", message, 502);
+  }
+}
+
+async function handlePdf(request: Request, env: Env, documentId: string): Promise<Response> {
+  if (!(await readSession(request, env.SESSION_SECRET))) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  try {
+    return await exportDocumentPdf(env, documentId);
+  } catch (error) {
+    if (error instanceof Error && error.message === "DOCUMENT_NOT_ALLOWED") {
+      return errorPage("Document not found", "This record is not part of the permitted archive.", 404);
+    }
+    return errorPage(
+      "PDF unavailable",
+      error instanceof Error ? error.message : "The document could not be exported from Google.",
+      502,
+    );
   }
 }
 
@@ -180,6 +199,10 @@ export default {
       const documentMatch = url.pathname.match(/^\/docs\/([^/]+)$/);
       if (request.method === "GET" && documentMatch) {
         return secure(await handleDocument(request, env, decodeURIComponent(documentMatch[1])));
+      }
+      const pdfMatch = url.pathname.match(/^\/api\/pdf\/([^/]+)$/);
+      if (request.method === "GET" && pdfMatch) {
+        return secure(await handlePdf(request, env, decodeURIComponent(pdfMatch[1])));
       }
       const imageMatch = url.pathname.match(/^\/api\/image\/([^/]+)\/([^/]+)$/);
       if (request.method === "GET" && imageMatch) {
