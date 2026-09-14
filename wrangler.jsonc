@@ -10,6 +10,6 @@
     "APP_ORIGIN": "https://discord-docs-portal.koolgos106.workers.dev",
     "DISCORD_CLIENT_ID": "1549084660250714212",
     "DISCORD_GUILD_ID": "1016767586194686087",
-    "GOOGLE_SERVICE_ACCOUNT_EMAIL": "document-protect@project-7e8a3752-9ec0-49d0-a4e.iam.gserviceaccount.com"
+    "GOOGLE_SERVICE_ACCOUNT_EMAIL": "discord-portal@project-1b81c776-7473-408b-b55.iam.gserviceaccount.com"
   }
 }
