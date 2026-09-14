@@ -71,7 +71,17 @@ async function googleJson<T>(env: Env, url: string): Promise<T> {
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${await googleAccessToken(env)}` },
   });
-  if (!response.ok) throw new Error(`Google API request failed (${response.status})`);
+  if (!response.ok) {
+    const failure = await response.json<{
+      error?: { status?: string; message?: string } | string;
+      error_description?: string;
+    }>().catch(() => ({}));
+    const apiError = typeof failure.error === "string"
+      ? failure.error
+      : [failure.error?.status, failure.error?.message].filter(Boolean).join(": ");
+    const detail = apiError || failure.error_description || "";
+    throw new Error(`Google API request failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
   return response.json<T>();
 }
 
