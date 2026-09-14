@@ -28,10 +28,10 @@ export const PORTAL_CONFIG = {
   sessionHours: 1,
 
   /**
-   * Optional featured files, shown first when present in the configured
-   * Google Drive folder. IDs not in that folder are rejected.
+   * Optional featured files, shown first when accessible to the service
+   * account (and inside the configured folder when that restriction is used).
    */
-  featuredDocumentIds: [] as string[],
+  featuredDocumentIds: ["1bb7A6YLaFIBqRgr1Js54LUKAZSXImW9FUUE0LsKS5AA"] as string[],
 } as const;
 
 /**
