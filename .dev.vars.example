@@ -1,0 +1,17 @@
+# Copy this file to .dev.vars for local development.
+# Never commit .dev.vars or real secret values.
+
+APP_ORIGIN=http://localhost:8787
+
+DISCORD_CLIENT_ID=YOUR_DISCORD_CLIENT_ID
+DISCORD_CLIENT_SECRET=YOUR_DISCORD_CLIENT_SECRET
+DISCORD_GUILD_ID=YOUR_DISCORD_SERVER_ID
+
+# Generate at least 32 random characters, e.g.:
+# openssl rand -base64 48
+SESSION_SECRET=YOUR_RANDOM_SESSION_SECRET_AT_LEAST_32_CHARACTERS
+
+GOOGLE_SERVICE_ACCOUNT_EMAIL=YOUR_SERVICE_ACCOUNT@YOUR_PROJECT.iam.gserviceaccount.com
+# Keep the quotation marks and escaped line breaks for local use.
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_KEY\n-----END PRIVATE KEY-----\n"
+GOOGLE_DRIVE_FOLDER_ID=YOUR_PRIVATE_GOOGLE_DRIVE_FOLDER_ID
