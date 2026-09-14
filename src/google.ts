@@ -12,13 +12,14 @@ function base64Url(input: string | ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-function pemBytes(pem: string): Uint8Array {
+function pemBytes(pem: string): ArrayBuffer {
   const normalized = pem.replace(/\\n/g, "\n");
   const base64 = normalized
     .replace(/-----BEGIN PRIVATE KEY-----/g, "")
     .replace(/-----END PRIVATE KEY-----/g, "")
     .replace(/\s/g, "");
-  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 async function googleAccessToken(env: Env): Promise<string> {
