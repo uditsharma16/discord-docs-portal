@@ -128,6 +128,35 @@ export async function assertAllowedDocument(env: Env, documentId: string): Promi
   return file;
 }
 
+export async function exportDocumentPdf(env: Env, documentId: string): Promise<Response> {
+  const file = await assertAllowedDocument(env, documentId);
+  const query = new URLSearchParams({ mimeType: "application/pdf" });
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(documentId)}/export?${query}`,
+    { headers: { Authorization: `Bearer ${await googleAccessToken(env)}` } },
+  );
+  if (!response.ok) {
+    const failure = await response.json<{
+      error?: { status?: string; message?: string } | string;
+    }>().catch(() => ({}));
+    const detail = typeof failure.error === "string"
+      ? failure.error
+      : [failure.error?.status, failure.error?.message].filter(Boolean).join(": ");
+    throw new Error(`Google PDF export failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
+
+  const filename = `${file.name.replace(/[\\"\r\n]/g, "_")}.pdf`;
+  const headers = new Headers({
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `inline; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  const length = response.headers.get("Content-Length");
+  if (length) headers.set("Content-Length", length);
+  return new Response(response.body, { status: 200, headers });
+}
+
 export async function getDocument(env: Env, documentId: string): Promise<GoogleDoc> {
   await assertAllowedDocument(env, documentId);
   return googleJson<GoogleDoc>(
