@@ -53,7 +53,7 @@ export function portalPage(user: SessionUser, files: DriveFile[]): string {
     const priority = Number(featured.has(b.id)) - Number(featured.has(a.id));
     return priority || a.name.localeCompare(b.name);
   });
-  const cards = sorted.map((file) => `<a class="card${featured.has(file.id) ? " featured" : ""}" href="/docs/${encodeURIComponent(file.id)}" data-title="${escapeHtml(file.name.toLowerCase())}">
+  const cards = sorted.map((file) => `<a class="card${featured.has(file.id) ? " featured" : ""}" href="/api/pdf/${encodeURIComponent(file.id)}" data-title="${escapeHtml(file.name.toLowerCase())}">
 <span class="icon">◈</span><h2>${escapeHtml(file.name)}${featured.has(file.id) ? '<span class="badge">Featured</span>' : ""}</h2>
 <p>${escapeHtml(file.description ?? "Open this record in the secure reader.")}</p><div class="meta">${escapeHtml(formatDate(file.modifiedTime))}</div></a>`).join("");
   const content = cards || '<div class="notice">No Google Docs were found in the configured Drive folder.</div>';
