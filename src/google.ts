@@ -3,7 +3,7 @@ import type { DriveFile, GoogleDoc, GoogleTab, InlineObject } from "./types";
 
 const encoder = new TextEncoder();
 let cachedToken: { token: string; expiresAt: number } | null = null;
-let cachedFiles: { folderId: string; files: DriveFile[]; expiresAt: number } | null = null;
+let cachedFiles: { sourceKey: string; files: DriveFile[]; expiresAt: number } | null = null;
 
 function base64Url(input: string | ArrayBuffer): string {
   const bytes = typeof input === "string" ? encoder.encode(input) : new Uint8Array(input);
@@ -72,17 +72,23 @@ async function googleJson<T>(env: Env, url: string): Promise<T> {
 }
 
 export async function listDocuments(env: Env): Promise<DriveFile[]> {
+  const folderId = env.GOOGLE_DRIVE_FOLDER_ID?.trim();
+  const sourceKey = folderId || "all-service-account-documents";
   if (
     cachedFiles &&
-    cachedFiles.folderId === env.GOOGLE_DRIVE_FOLDER_ID &&
+    cachedFiles.sourceKey === sourceKey &&
     cachedFiles.expiresAt > Date.now()
   ) return cachedFiles.files;
+
+  const documentQuery = folderId
+    ? `'${folderId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.document'`
+    : "trashed = false and mimeType = 'application/vnd.google-apps.document'";
 
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
   do {
     const query = new URLSearchParams({
-      q: `'${env.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.document'`,
+      q: documentQuery,
       fields: "nextPageToken,files(id,name,mimeType,modifiedTime,description)",
       pageSize: "1000",
       orderBy: "name",
@@ -98,7 +104,7 @@ export async function listDocuments(env: Env): Promise<DriveFile[]> {
     pageToken = page.nextPageToken;
   } while (pageToken);
 
-  cachedFiles = { folderId: env.GOOGLE_DRIVE_FOLDER_ID, files, expiresAt: Date.now() + 300_000 };
+  cachedFiles = { sourceKey, files, expiresAt: Date.now() + 300_000 };
   return files;
 }
 
