@@ -135,7 +135,8 @@ async function handleDocument(request: Request, env: Env, documentId: string): P
     if (error instanceof Error && error.message === "DOCUMENT_NOT_ALLOWED") {
       return errorPage("Document not found", "This record is not part of the permitted archive.", 404);
     }
-    return errorPage("Document unavailable", "The record could not be retrieved from Google Drive.", 502);
+    const message = error instanceof Error ? error.message : "The record could not be retrieved from Google.";
+    return errorPage("Document unavailable", message, 502);
   }
 }
 
