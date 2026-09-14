@@ -46,5 +46,5 @@ export interface Env {
   SESSION_SECRET: string;
   GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
   GOOGLE_PRIVATE_KEY: string;
-  GOOGLE_DRIVE_FOLDER_ID: string;
+  /** Optional extra restriction. Leave unset to show every Doc shared with the service account. */\n  GOOGLE_DRIVE_FOLDER_ID?: string;
 }
