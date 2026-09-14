@@ -53,7 +53,11 @@ async function googleAccessToken(env: Env): Promise<string> {
       assertion,
     }),
   });
-  if (!response.ok) throw new Error(`Google authentication failed (${response.status})`);
+  if (!response.ok) {
+    const failure = await response.json<{ error?: string; error_description?: string }>().catch(() => ({}));
+    const detail = [failure.error, failure.error_description].filter(Boolean).join(": ");
+    throw new Error(`Google authentication failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
   const result = await response.json<{ access_token?: string; expires_in?: number }>();
   if (!result.access_token) throw new Error("Google returned no access token");
   cachedToken = {
