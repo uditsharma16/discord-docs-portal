@@ -6,25 +6,25 @@ role.
 
 ## Boundaries
 
-- Google Docs must be **Restricted**, not “Anyone with the link”.
-- The service account receives Viewer access only to the dedicated source folder.
-- A requested document ID is checked against the configured folder before it is
-  retrieved.
-- Discord access tokens are used only during sign-in and are never stored.
-- Browser sessions contain only signed identity/role data and expire after the
-  configured short lifetime.
-- Google images are proxied through an authenticated route.
-- All document text is HTML-escaped before rendering.
+- Google Docs remain **Restricted**, never “Anyone with the link”.
+- The dedicated service account receives Viewer access only to portal documents.
+- A requested document ID must appear in the service account's accessible document
+  list before content is retrieved.
+- An optional `GOOGLE_DRIVE_FOLDER_ID` can add a second folder boundary.
+- Discord access tokens are used during sign-in and never stored.
+- Browser sessions contain signed identity/role data and expire quickly.
+- Google images pass through an authenticated proxy.
+- Document text is HTML-escaped before rendering.
 - Responses disable framing, indexing, referrers, caching, and unnecessary browser
   permissions.
 
 ## Known limitation
 
 An authorized reader can still copy, photograph, or screenshot content. No web
-portal can technically prevent deliberate redistribution by an authorized person.
+portal can prevent deliberate redistribution by an authorized reader.
 
 ## Secret handling
 
 Never commit `.dev.vars`, service-account JSON, OAuth secrets, private keys, or
-session keys. Use Cloudflare secret storage in production and rotate any value that
-is accidentally exposed.
+session keys. Use Cloudflare secret storage and rotate any accidentally exposed
+value.
