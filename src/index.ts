@@ -26,7 +26,6 @@ const requiredEnvironment: Array<keyof Env> = [
   "SESSION_SECRET",
   "GOOGLE_SERVICE_ACCOUNT_EMAIL",
   "GOOGLE_PRIVATE_KEY",
-  "GOOGLE_DRIVE_FOLDER_ID",
 ];
 
 function validateEnvironment(env: Env): void {
