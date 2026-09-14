@@ -54,7 +54,7 @@ async function googleAccessToken(env: Env): Promise<string> {
     }),
   });
   if (!response.ok) {
-    const failure = await response.json<{ error?: string; error_description?: string }>().catch(() => ({}));
+    const failure = await response.json<{ error?: string; error_description?: string }>().catch(() => ({ error: undefined, error_description: undefined }));
     const detail = [failure.error, failure.error_description].filter(Boolean).join(": ");
     throw new Error(`Google authentication failed (${response.status})${detail ? `: ${detail}` : ""}`);
   }
@@ -75,7 +75,7 @@ async function googleJson<T>(env: Env, url: string): Promise<T> {
     const failure = await response.json<{
       error?: { status?: string; message?: string } | string;
       error_description?: string;
-    }>().catch(() => ({}));
+    }>().catch(() => ({ error: undefined, error_description: undefined }));
     const apiError = typeof failure.error === "string"
       ? failure.error
       : [failure.error?.status, failure.error?.message].filter(Boolean).join(": ");
@@ -138,7 +138,7 @@ export async function exportDocumentPdf(env: Env, documentId: string): Promise<R
   if (!response.ok) {
     const failure = await response.json<{
       error?: { status?: string; message?: string } | string;
-    }>().catch(() => ({}));
+    }>().catch(() => ({ error: undefined, error_description: undefined }));
     const detail = typeof failure.error === "string"
       ? failure.error
       : [failure.error?.status, failure.error?.message].filter(Boolean).join(": ");
