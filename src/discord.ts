@@ -10,7 +10,6 @@ export function discordLoginUrl(env: Env, state: string): string {
     response_type: "code",
     scope: "identify guilds.members.read",
     state,
-    prompt: "none",
   });
   return `${API}/oauth2/authorize?${query}`;
 }
