@@ -10,7 +10,7 @@ import {
   signValue,
   verifyValue,
 } from "./security";
-import { documentPage, errorPage, loginPage, portalPage } from "./ui";
+import { errorPage, loginPage, portalPage } from "./ui";
 
 interface OAuthState {
   nonce: string;
@@ -131,7 +131,7 @@ async function handleDocument(request: Request, env: Env, documentId: string): P
   try {
     const file = (await listDocuments(env)).find((item) => item.id === documentId);
     if (!file) return errorPage("Document not found", "This record is not part of the permitted archive.", 404);
-    return html(documentPage(user, file));
+    return redirect(`/api/pdf/${encodeURIComponent(file.id)}`);
   } catch (error) {
     if (error instanceof Error && error.message === "DOCUMENT_NOT_ALLOWED") {
       return errorPage("Document not found", "This record is not part of the permitted archive.", 404);
