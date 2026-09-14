@@ -128,23 +128,98 @@ export async function assertAllowedDocument(env: Env, documentId: string): Promi
   return file;
 }
 
-export async function exportDocumentPdf(env: Env, documentId: string): Promise<Response> {
-  const file = await assertAllowedDocument(env, documentId);
-  const query = new URLSearchParams({ mimeType: "application/pdf" });
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(documentId)}/export?${query}`,
-    { headers: { Authorization: `Bearer ${await googleAccessToken(env)}` } },
-  );
+interface DriveDownloadOperation {
+  name?: string;
+  done?: boolean;
+  error?: { code?: number; message?: string; status?: string };
+  metadata?: { resourceKey?: string };
+  response?: { downloadUri?: string; partialDownloadAllowed?: boolean };
+}
+
+function apiErrorMessage(failure: {
+  error?: { status?: string; message?: string } | string;
+}): string {
+  return typeof failure.error === "string"
+    ? failure.error
+    : [failure.error?.status, failure.error?.message].filter(Boolean).join(": ");
+}
+
+async function parseOperationResponse(response: Response, context: string): Promise<DriveDownloadOperation> {
   if (!response.ok) {
     const failure = await response.json<{
       error?: { status?: string; message?: string } | string;
-    }>().catch(() => ({ error: undefined, error_description: undefined }));
-    const detail = typeof failure.error === "string"
-      ? failure.error
-      : [failure.error?.status, failure.error?.message].filter(Boolean).join(": ");
-    throw new Error(`Google PDF export failed (${response.status})${detail ? `: ${detail}` : ""}`);
+    }>().catch(() => ({ error: undefined }));
+    const detail = apiErrorMessage(failure);
+    throw new Error(`${context} failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
+  return response.json<DriveDownloadOperation>();
+}
+
+function trustedGoogleDownloadUri(value: string): URL {
+  const url = new URL(value);
+  const trusted = url.protocol === "https:" && (
+    url.hostname === "google.com" ||
+    url.hostname.endsWith(".google.com") ||
+    url.hostname === "googleapis.com" ||
+    url.hostname.endsWith(".googleapis.com") ||
+    url.hostname === "googleusercontent.com" ||
+    url.hostname.endsWith(".googleusercontent.com")
+  );
+  if (!trusted) throw new Error("Google returned an untrusted PDF download URL");
+  return url;
+}
+
+async function largeDocumentPdf(env: Env, documentId: string): Promise<Response> {
+  const token = await googleAccessToken(env);
+  const query = new URLSearchParams({ mimeType: "application/pdf" });
+  let operation = await parseOperationResponse(
+    await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(documentId)}/download?${query}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "Content-Length": "0",
+        },
+      },
+    ),
+    "Google large-file export",
+  );
+
+  const delays = [1_000, 2_000, 4_000, 8_000, 8_000];
+  for (const delay of delays) {
+    if (operation.done) break;
+    if (!operation.name) throw new Error("Google returned no large-file operation name");
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    operation = await parseOperationResponse(
+      await fetch(
+        `https://www.googleapis.com/drive/v3/operations/${encodeURIComponent(operation.name)}`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+      ),
+      "Google large-file operation",
+    );
   }
 
+  if (operation.error) {
+    const detail = [operation.error.status, operation.error.message].filter(Boolean).join(": ");
+    throw new Error(`Google large-file export failed${detail ? `: ${detail}` : ""}`);
+  }
+  if (!operation.done) {
+    throw new Error("Google is still preparing this large PDF. Please open it again in a few seconds.");
+  }
+  const downloadUri = operation.response?.downloadUri;
+  if (!downloadUri) throw new Error("Google finished the export without a download URL");
+
+  const response = await fetch(trustedGoogleDownloadUri(downloadUri), {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: "follow",
+  });
+  if (!response.ok) throw new Error(`Google PDF download failed (${response.status})`);
+  return response;
+}
+
+function pdfResponse(file: DriveFile, upstream: Response): Response {
   const filename = `${file.name.replace(/[\\"\r\n]/g, "_")}.pdf`;
   const headers = new Headers({
     "Content-Type": "application/pdf",
@@ -152,9 +227,34 @@ export async function exportDocumentPdf(env: Env, documentId: string): Promise<R
     "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
   });
-  const length = response.headers.get("Content-Length");
+  const length = upstream.headers.get("Content-Length");
   if (length) headers.set("Content-Length", length);
-  return new Response(response.body, { status: 200, headers });
+  return new Response(upstream.body, { status: 200, headers });
+}
+
+export async function exportDocumentPdf(env: Env, documentId: string): Promise<Response> {
+  const file = await assertAllowedDocument(env, documentId);
+  const token = await googleAccessToken(env);
+  const query = new URLSearchParams({ mimeType: "application/pdf" });
+  let response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(documentId)}/export?${query}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+
+  if (!response.ok) {
+    const failure = await response.json<{
+      error?: { status?: string; message?: string } | string;
+    }>().catch(() => ({ error: undefined }));
+    const detail = apiErrorMessage(failure);
+    const tooLarge = response.status === 403 &&
+      /too large|export.*limit|exportSizeLimitExceeded/i.test(detail);
+    if (!tooLarge) {
+      throw new Error(`Google PDF export failed (${response.status})${detail ? `: ${detail}` : ""}`);
+    }
+    response = await largeDocumentPdf(env, documentId);
+  }
+
+  return pdfResponse(file, response);
 }
 
 export async function getDocument(env: Env, documentId: string): Promise<GoogleDoc> {
